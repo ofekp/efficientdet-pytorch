@@ -12,12 +12,11 @@ import torch.nn as nn
 import logging
 import math
 from collections import OrderedDict
-from typing import List
+from typing import List, Callable
 
 from timm import create_model
 from timm.models.layers import create_conv2d, drop_path, create_pool2d, Swish, get_act_layer
-#from .config import get_fpn_config
-import efficientdet_config_model
+from .config import get_fpn_config
 
 _DEBUG = False
 
