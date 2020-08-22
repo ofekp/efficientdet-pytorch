@@ -1,5 +1,7 @@
 """ PyTorch EfficientDet model
 
+TODO(ofekp): Taken from: https://github.com/rwightman/efficientdet-pytorch/blob/75c10c855a0bd617f9b6be0835761121e924b999/effdet/efficientdet.py
+
 Based on official Tensorflow version at: https://github.com/google/automl/tree/master/efficientdet
 Paper: https://arxiv.org/abs/1911.09070
 
@@ -10,11 +12,12 @@ import torch.nn as nn
 import logging
 import math
 from collections import OrderedDict
-from typing import List, Callable
+from typing import List
 
 from timm import create_model
 from timm.models.layers import create_conv2d, drop_path, create_pool2d, Swish, get_act_layer
-from .config import get_fpn_config
+#from .config import get_fpn_config
+import efficientdet_config_model
 
 _DEBUG = False
 
@@ -241,6 +244,7 @@ class BiFpnLayer(nn.Module):
         self.feature_info = self.feature_info[-num_levels::]
 
     def forward(self, x):
+        # len(x) = 5
         x = self.fnode(x)
         return x[-self.num_levels::]
 
@@ -250,7 +254,7 @@ class BiFpn(nn.Module):
     def __init__(self, config, feature_info, norm_layer=nn.BatchNorm2d, norm_kwargs=None, act_layer=_ACT_LAYER):
         super(BiFpn, self).__init__()
         self.config = config
-        fpn_config = config.fpn_config or get_fpn_config(
+        fpn_config = config.fpn_config or efficientdet_config_model.get_fpn_config(
             config.fpn_name, min_level=config.min_level, max_level=config.max_level)
         self.resample = SequentialAppendLast()
         for level in range(config.num_levels):
@@ -299,9 +303,12 @@ class BiFpn(nn.Module):
             feature_info = fpn_layer.feature_info
 
     def forward(self, x):
+        # len(self.resample) = 2
+        # self.config.num_levels = max_level-min_level+1=7-3+1=5
         assert len(self.resample) == self.config.num_levels - len(x)
         x = self.resample(x)
         x = self.cell(x)
+        x = OrderedDict([(k, v) for k, v in enumerate(x)])  # ofekp - maskrcnn expects an OrderedDict
         return x
 
 
@@ -342,6 +349,7 @@ class HeadNet(nn.Module):
         outputs = []
         for level in range(self.config.num_levels):
             x_level = x[level]
+            # print("x_level {}".format(x_level))
             for i in range(self.config.box_class_repeats):
                 x_level_ident = x_level
                 x_level = self.conv_rep[i](x_level)
@@ -440,17 +448,6 @@ def _init_weight_alt(m, n='', ):
         m.bias.data.zero_()
 
 
-def get_feature_info(backbone):
-    if isinstance(backbone.feature_info, Callable):
-        # old accessor for timm versions <= 0.1.30, efficientnet and mobilenetv3 and related nets only
-        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction'])
-                        for i, f in enumerate(backbone.feature_info())]
-    else:
-        # new feature info accessor, timm >= 0.2, all models supported
-        feature_info = backbone.feature_info.get_dicts(keys=['num_chs', 'reduction'])
-    return feature_info
-
-
 class EfficientDet(nn.Module):
 
     def __init__(self, config, norm_kwargs=None, pretrained_backbone=True, alternate_init=False):
@@ -459,7 +456,8 @@ class EfficientDet(nn.Module):
         self.backbone = create_model(
             config.backbone_name, features_only=True, out_indices=(2, 3, 4),
             pretrained=pretrained_backbone, **config.backbone_args)
-        feature_info = get_feature_info(self.backbone)
+        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction'])
+                        for i, f in enumerate(self.backbone.feature_info())]
 
         act_layer = get_act_layer(config.act_type)
         self.fpn = BiFpn(config, feature_info, norm_kwargs=norm_kwargs, act_layer=act_layer)
