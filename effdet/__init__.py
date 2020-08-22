@@ -1,4 +1,4 @@
-from .efficientdet import EfficientDet
+from .efficientdet import EfficientDet, BiFpn, HeadNet, _init_weight, _init_weight_alt
 from .bench import DetBenchPredict, DetBenchTrain, unwrap_bench
 from .evaluator import COCOEvaluator, FastMapEvalluator
 from .config import get_efficientdet_config, default_detection_model_configs

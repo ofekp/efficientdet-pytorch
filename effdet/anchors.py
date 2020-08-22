@@ -229,7 +229,7 @@ def generate_detections(
     assert boxes[0][3] == boxes_yxyx[0][2]
 
     # TODO(ofekp): WHY?!
-    # classes += 1  # back to class idx with background class = 0
+    classes += 1  # back to class idx with background class = 0
 
     # stack em and pad out to MAX_DETECTIONS_PER_IMAGE if necessary
     detections = torch.cat([boxes_yxyx, scores, classes.float()], dim=1)
@@ -356,7 +356,7 @@ class AnchorLabeler(object):
 
         # class labels start from 1 and the background class = -1
         print("cls_targets [{}]".format(cls_targets))
-        # cls_targets -= 1
+        cls_targets -= 1
         cls_targets = cls_targets.long()
 
         # Unpack labels.
@@ -405,25 +405,26 @@ class AnchorLabeler(object):
             last_sample = i == batch_size - 1
             # cls_weights, box_weights are not used
             cols_order = torch.LongTensor([1,0,3,2]).to(gt_boxes[i].device)
-            gt_boxes_i_yxyx = torch.index_select(gt_boxes[i], 1, cols_order)
+            gt_boxes_i_xyxy = torch.index_select(gt_boxes[i], 1, cols_order)
             # print(gt_boxes[i])                                     # this is good
             # print(torch.index_select(gt_boxes[i], 1, cols_order))  # this is good
 
-            assert torch.min(gt_classes[i]) >= 0
-            assert torch.max(gt_classes[i]) < 11  # num_classes
+            # assert torch.min(gt_classes[i]) >= 0
+            # assert torch.max(gt_classes[i]) < 11  # num_classes
 
             # checking only the fist box, just to validate it is doing what we think it does
-            assert gt_boxes[i][0][0] == gt_boxes_i_yxyx[0][1]
-            assert gt_boxes[i][0][1] == gt_boxes_i_yxyx[0][0]
-            assert gt_boxes[i][0][2] == gt_boxes_i_yxyx[0][3]
-            assert gt_boxes[i][0][3] == gt_boxes_i_yxyx[0][2]
+            assert gt_boxes[i][0][0] == gt_boxes_i_xyxy[0][1]
+            assert gt_boxes[i][0][1] == gt_boxes_i_xyxy[0][0]
+            assert gt_boxes[i][0][2] == gt_boxes_i_xyxy[0][3]
+            assert gt_boxes[i][0][3] == gt_boxes_i_xyxy[0][2]
             cls_targets, _, box_targets, _, matches = self.target_assigner.assign(
                 # anchor_box_list, BoxList(gt_boxes[i]), gt_classes[i])
-                anchor_box_list, BoxList(gt_boxes_i_yxyx), gt_classes[i])  # TODO(ofekp): efficientdet is expecting boxes in yxyx format
+                anchor_box_list, BoxList(gt_boxes_i_xyxy), gt_classes[i])  # TODO(ofekp): efficientdet is expecting boxes in yxyx format
             # class labels start from 1 and the background class = -1
-            # cls_targets -= 1  # TODO(ofekp): commented this out
-            assert torch.min(cls_targets) >= 0
-            assert torch.max(cls_targets) < 11  # num_classes
+            cls_targets -= 1
+            # print(cls_targets)
+            # assert torch.min(cls_targets) >= 1
+            # assert torch.max(cls_targets) < 12  # num_classes + 1
             cls_targets = cls_targets.long()
 
             # Unpack labels.
