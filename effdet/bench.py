@@ -122,10 +122,91 @@ def my_fast_collate(targets):
 def my_fast_collate_images(images_list):
     batch_size = len(images_list)
 
-    images_tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
+    images_tensor = torch.zeros((batch_size, *images_list[0].shape), dtype=images_list[0].dtype)
     for i in range(batch_size):
-        tensor[i] += torch.tensor(images_list[i] * 255, dtype=torch.uint8)
+        images_tensor[i] += torch.tensor(images_list[i], dtype=images_list[0].dtype)
     return images_tensor
+
+
+from torch.jit.annotations import List, Dict
+def conv_predictions(output_map):
+    if 'detections' not in output_map:
+        return output_map
+    result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
+    detections = output_map['detections']
+    num_images = detections.shape[0]
+    device=detections.device
+    for i in range(num_images):
+        image_detection = detections[i]
+        segments_boxes = []
+        segments_labels = []
+        segments_scores = []
+        for segment in image_detection:
+            score = float(segment[4])
+            if score < .001:  # stop when below this threshold, scores in descending order
+                break
+            segments_boxes.append(segment[0:4].tolist())
+            segments_labels.append(int(segment[5]))
+            segments_scores.append(score)
+
+        segments_labels = torch.tensor(segments_labels) - 1
+        assert torch.min(segments_labels) >= 0
+        assert torch.min(segments_labels) < 11
+        assert len(segments_boxes) == len(segments_labels)
+        assert len(segments_boxes) == len(segments_scores)
+
+        result.append(
+            {
+                "boxes": torch.tensor(segments_boxes).to(device),
+                "labels": segments_labels.to(device),
+                "scores": torch.tensor(segments_scores).to(device),
+            }
+        )
+    return result
+
+
+class DetBenchTrainOrig(nn.Module):
+    def __init__(self, model, config):
+        super(DetBenchTrainOrig, self).__init__()
+        self.config = config
+        self.model = model
+        self.anchors = Anchors(
+            config.min_level, config.max_level,
+            config.num_scales, config.aspect_ratios,
+            config.anchor_scale, config.image_size)
+        self.anchor_labeler = AnchorLabeler(self.anchors, config.num_classes, match_threshold=0.5)
+        self.loss_fn = DetectionLoss(self.config)
+
+    def forward(self, x, targets=None):
+        # print("min [{}] max [{}]".format(torch.min(x[0]), torch.max(x[0])))
+        # min [-2.1179039478302] max [2.640000104904175]
+        device = x[0].device
+        if targets is not None:
+            target = my_fast_collate(targets)
+            x = my_fast_collate_images(x).to(device)
+            # print(x)
+            # print(target)
+            class_out, box_out = self.model(x)
+            cls_targets, box_targets, num_positives = self.anchor_labeler.batch_label_anchors(
+                x.shape[0], target['boxes'].to(device), target['labels'].to(device))
+            # print("num_positives [{}]".format(num_positives))
+            loss, class_loss, box_loss = self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
+            output = dict(loss_box=loss)
+            if not self.training:
+                # if eval mode, output detections for evaluation
+                class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+                output['detections'] = _batch_detection(
+                    x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes,
+                    target['img_scale'].to(device), target['img_size'].to(device))  # box_out is yxhw
+            return conv_predictions(output)
+        else:
+            x = my_fast_collate_images(x).to(device)
+            class_out, box_out = self.model(x)
+            class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+            output = dict()
+            output['detections'] = _batch_detection(
+                x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes, torch.tensor([1.0]).to(device), torch.tensor([[512,512]]).to(device))
+            return conv_predictions(output)
 
 
 class DetBenchTrain(nn.Module):

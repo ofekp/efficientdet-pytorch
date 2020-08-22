@@ -218,21 +218,21 @@ def generate_detections(
     # boxes[:, 2] -= boxes[:, 0]
     # boxes[:, 3] -= boxes[:, 1]
     # TODO(ofekp): convert back to xyxy (at this point we are with yxyx)
-    cols_order = torch.tensor([1,0,3,2], dtype=torch.long).to(boxes.device)
-    boxes_yxyx = torch.index_select(boxes, 1, cols_order)
-    assert img_scale == 1.0
-    boxes_yxyx *= img_scale
+    # cols_order = torch.tensor([1,0,3,2], dtype=torch.long).to(boxes.device)
+    # boxes_yxyx = torch.index_select(boxes, 1, cols_order)
+    # assert boxes[0][0] == boxes_yxyx[0][1]
+    # assert boxes[0][1] == boxes_yxyx[0][0]
+    # assert boxes[0][2] == boxes_yxyx[0][3]
+    # assert boxes[0][3] == boxes_yxyx[0][2]
 
-    assert boxes[0][0] == boxes_yxyx[0][1]
-    assert boxes[0][1] == boxes_yxyx[0][0]
-    assert boxes[0][2] == boxes_yxyx[0][3]
-    assert boxes[0][3] == boxes_yxyx[0][2]
+    assert img_scale == 1.0
+    boxes *= img_scale
 
     # TODO(ofekp): WHY?!
     classes += 1  # back to class idx with background class = 0
 
     # stack em and pad out to MAX_DETECTIONS_PER_IMAGE if necessary
-    detections = torch.cat([boxes_yxyx, scores, classes.float()], dim=1)
+    detections = torch.cat([boxes, scores, classes.float()], dim=1)
     if len(top_detection_idx) < max_det_per_image:
         detections = torch.cat([
             detections,
@@ -355,7 +355,7 @@ class AnchorLabeler(object):
         cls_targets, _, box_targets, _, matches = self.target_assigner.assign(anchor_box_list, gt_box_list, gt_labels)
 
         # class labels start from 1 and the background class = -1
-        print("cls_targets [{}]".format(cls_targets))
+        # print("cls_targets [{}]".format(cls_targets))
         cls_targets -= 1
         cls_targets = cls_targets.long()
 
@@ -405,7 +405,7 @@ class AnchorLabeler(object):
             last_sample = i == batch_size - 1
             # cls_weights, box_weights are not used
             cols_order = torch.LongTensor([1,0,3,2]).to(gt_boxes[i].device)
-            gt_boxes_i_xyxy = torch.index_select(gt_boxes[i], 1, cols_order)
+            gt_boxes_i_yxyx = torch.index_select(gt_boxes[i], 1, cols_order)
             # print(gt_boxes[i])                                     # this is good
             # print(torch.index_select(gt_boxes[i], 1, cols_order))  # this is good
 
@@ -413,19 +413,26 @@ class AnchorLabeler(object):
             # assert torch.max(gt_classes[i]) < 11  # num_classes
 
             # checking only the fist box, just to validate it is doing what we think it does
-            assert gt_boxes[i][0][0] == gt_boxes_i_xyxy[0][1]
-            assert gt_boxes[i][0][1] == gt_boxes_i_xyxy[0][0]
-            assert gt_boxes[i][0][2] == gt_boxes_i_xyxy[0][3]
-            assert gt_boxes[i][0][3] == gt_boxes_i_xyxy[0][2]
+            for idx in range(gt_boxes[i].shape[0]):
+                assert gt_boxes[i][idx][0] == gt_boxes_i_yxyx[idx][1]
+                assert gt_boxes[i][idx][1] == gt_boxes_i_yxyx[idx][0]
+                assert gt_boxes[i][idx][2] == gt_boxes_i_yxyx[idx][3]
+                assert gt_boxes[i][idx][3] == gt_boxes_i_yxyx[idx][2]
+                assert gt_boxes_i_yxyx[idx][0] <= gt_boxes_i_yxyx[idx][2]
+                assert gt_boxes_i_yxyx[idx][1] <= gt_boxes_i_yxyx[idx][3]
+            
             cls_targets, _, box_targets, _, matches = self.target_assigner.assign(
                 # anchor_box_list, BoxList(gt_boxes[i]), gt_classes[i])
-                anchor_box_list, BoxList(gt_boxes_i_xyxy), gt_classes[i])  # TODO(ofekp): efficientdet is expecting boxes in yxyx format
+                anchor_box_list, BoxList(gt_boxes_i_yxyx), gt_classes[i])  # TODO(ofekp): efficientdet is expecting boxes in yxyx format
             # class labels start from 1 and the background class = -1
             cls_targets -= 1
             # print(cls_targets)
             # assert torch.min(cls_targets) >= 1
             # assert torch.max(cls_targets) < 12  # num_classes + 1
             cls_targets = cls_targets.long()
+
+            # print("gt_classes[i] [{}]".format(gt_classes[i]))
+            # print("cls_targets [{}]".format(cls_targets))
 
             # Unpack labels.
             """Unpacks an array of cls/box into multiple scales."""
