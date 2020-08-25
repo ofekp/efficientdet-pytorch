@@ -143,25 +143,37 @@ def conv_predictions(output_map):
         segments_scores = []
         for segment in image_detection:
             score = float(segment[4])
-            if score < .001:  # stop when below this threshold, scores in descending order
+            if score < .1:  # stop when below this threshold, scores in descending order
+                print("score too small")
                 break
             segments_boxes.append(segment[0:4].tolist())
             segments_labels.append(int(segment[5]))
             segments_scores.append(score)
 
-        segments_labels = torch.tensor(segments_labels) - 1
-        assert torch.min(segments_labels) >= 0
-        assert torch.min(segments_labels) < 11
-        assert len(segments_boxes) == len(segments_labels)
-        assert len(segments_boxes) == len(segments_scores)
+        segments_labels = torch.sub(torch.tensor(segments_labels).to(device), 1)
+        segments_boxes = torch.tensor(segments_boxes).to(device)
+        segments_scores = torch.tensor(segments_scores).to(device)
 
-        result.append(
-            {
-                "boxes": torch.tensor(segments_boxes).to(device),
-                "labels": segments_labels.to(device),
-                "scores": torch.tensor(segments_scores).to(device),
-            }
-        )
+        # here -1 marks background
+        indices_to_keep = (segments_labels != -1).nonzero().squeeze()
+        segments_labels = segments_labels[indices_to_keep]
+        segments_boxes = segments_boxes[indices_to_keep]
+        segments_scores = segments_scores[indices_to_keep]
+        # assert torch.min(segments_labels) >= 0
+        # assert torch.min(segments_labels) < 11
+        # assert len(segments_boxes) == len(segments_labels)
+        # assert len(segments_boxes) == len(segments_scores)
+
+        print(segments_scores)
+
+        if len(segments_labels.shape) > 0 and len(segments_labels) > 0:
+            result.append(
+                {
+                    "boxes": segments_boxes,
+                    "labels": segments_labels,
+                    "scores": segments_scores,
+                }
+            )
     return result
 
 
@@ -185,10 +197,10 @@ class DetBenchTrainOrig(nn.Module):
             target = my_fast_collate(targets)
             x = my_fast_collate_images(x).to(device)
             # print(x)
-            # print(target)
+            # print("traget in bench after fast_collate {}".format(target))
             class_out, box_out = self.model(x)
             cls_targets, box_targets, num_positives = self.anchor_labeler.batch_label_anchors(
-                x.shape[0], target['boxes'].to(device), target['labels'].to(device))
+                x.shape[0], target['boxes'].to(device).float(), target['labels'].to(device).float())
             # print("num_positives [{}]".format(num_positives))
             loss, class_loss, box_loss = self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
             output = dict(loss_box=loss)
@@ -205,7 +217,7 @@ class DetBenchTrainOrig(nn.Module):
             class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
             output = dict()
             output['detections'] = _batch_detection(
-                x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes, torch.tensor([1.0]).to(device), torch.tensor([[512,512]]).to(device))
+                x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes, torch.tensor([1.0]*x.shape[0]).to(device), torch.tensor([[512,512]]*x.shape[0]).to(device))
             return conv_predictions(output)
 
 
@@ -231,7 +243,7 @@ class DetBenchTrain(nn.Module):
             # print("traget in bench after fast_collate {}".format(target))
             class_out, box_out = self.model(features)  # EfficientDetBB (without the FPN), expects to get the features (output of FPN)
             cls_targets, box_targets, num_positives = self.anchor_labeler.batch_label_anchors(
-                images.tensors.shape[0], target['boxes'].to(device), target['labels'].to(device))
+                images.tensors.shape[0], target['boxes'].to(device).float(), target['labels'].to(device).float())
             # print("cls_targets len [{}]".format(len(cls_targets)))  # prints 5
             # for ccc in cls_targets:
             #     print("cls_target min [{}] max [{}]".format(torch.min(ccc), torch.max(ccc)))

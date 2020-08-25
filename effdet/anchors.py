@@ -166,6 +166,7 @@ def clip_boxes_xyxy(boxes: torch.Tensor, size: torch.Tensor):
     return boxes
 
 
+# box_outputs - expected boxes are in yxhw
 def generate_detections(
         cls_outputs, box_outputs, anchor_boxes, indices, classes, img_scale, img_size,
         max_det_per_image: int = MAX_DETECTIONS_PER_IMAGE):
@@ -420,6 +421,16 @@ class AnchorLabeler(object):
                 assert gt_boxes[i][idx][3] == gt_boxes_i_yxyx[idx][2]
                 assert gt_boxes_i_yxyx[idx][0] <= gt_boxes_i_yxyx[idx][2]
                 assert gt_boxes_i_yxyx[idx][1] <= gt_boxes_i_yxyx[idx][3]
+
+            # change this method to also get images batch x
+            # import matplotlib.pyplot as plt
+            # fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(14, 14))
+            # ax.imshow(x[0].cpu().permute(1, 2, 0))
+            # ax.axis('off')
+            # ax.scatter(x=gt_boxes_i_yxyx[0][1].cpu(), y=gt_boxes_i_yxyx[0][0].cpu(), c='r', s=40)
+            # ax.scatter(x=gt_boxes_i_yxyx[0][3].cpu(), y=gt_boxes_i_yxyx[0][2].cpu(), c='b', s=40)
+            # plt.show()
+            # this was good
             
             cls_targets, _, box_targets, _, matches = self.target_assigner.assign(
                 # anchor_box_list, BoxList(gt_boxes[i]), gt_classes[i])
