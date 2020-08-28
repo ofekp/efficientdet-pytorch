@@ -445,6 +445,18 @@ def _init_weight_alt(m, n='', ):
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1.0)
         m.bias.data.zero_()
+        
+        
+def get_feature_info(backbone):
+    if isinstance(backbone.feature_info, Callable):
+        # old accessor for timm versions <= 0.1.30, efficientnet and mobilenetv3 and related nets only
+        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction'])
+                        for i, f in enumerate(backbone.feature_info())]
+    else:
+        # new feature info accessor, timm >= 0.2, all models supported
+        feature_info = backbone.feature_info.get_dicts(keys=['num_chs', 'reduction'])
+    return feature_info
+
 
 
 class EfficientDet(nn.Module):
@@ -455,8 +467,8 @@ class EfficientDet(nn.Module):
         self.backbone = create_model(
             config.backbone_name, features_only=True, out_indices=(2, 3, 4),
             pretrained=pretrained_backbone, **config.backbone_args)
-        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction'])
-                        for i, f in enumerate(self.backbone.feature_info())]
+        feature_info = get_feature_info(self.backbone)
+
 
         act_layer = get_act_layer(config.act_type)
         self.fpn = BiFpn(config, feature_info, norm_kwargs=norm_kwargs, act_layer=act_layer)
