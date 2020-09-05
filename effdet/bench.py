@@ -80,7 +80,7 @@ class DetBenchPredict(nn.Module):
 # ofekp - adding this method from https://github.com/rwightman/efficientdet-pytorch/blob/0b36cc1cccfe92febc64f6eb569ca4393bd73964/data/loader.py#L86
 import numpy as np 
 def my_fast_collate(targets):
-    MAX_NUM_INSTANCES = 100  # TODO(ofekp): in anchors.py MAX_DETECTIONS_PER_IMAGE is 100
+    MAX_NUM_INSTANCES = 75  # iMaterialist max number of instances in train dataset is 74
     batch_size = len(targets)
 
     # FIXME this needs to be more robust
